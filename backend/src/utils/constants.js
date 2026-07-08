@@ -1,0 +1,88 @@
+const BRANCHES = [
+  'CSE',
+  'ECE',
+  'ME',
+  'CE',
+  'EE',
+  'IT',
+  'OTHER'
+];
+
+const YEARS = [
+  '1st',
+  '2nd',
+  '3rd',
+  '4th',
+  '5th'
+];
+
+const POST_CATEGORIES = [
+  'GENERAL',
+  'ACADEMIC',
+  'PLACEMENT',
+  'INTERNSHIP',
+  'PROJECT',
+  'CULTURAL',
+  'SPORTS',
+  'TECHNICAL'
+];
+
+const GROUP_CATEGORIES = [
+  'STUDY',
+  'CODING',
+  'PROJECT',
+  'PLACEMENT',
+  'INTERNSHIP',
+  'CULTURAL',
+  'SPORTS',
+  'OTHER'
+];
+
+const FORUM_CATEGORIES = [
+  'ACADEMICS',
+  'CODING',
+  'PLACEMENTS',
+  'PROJECTS',
+  'INTERNSHIPS',
+  'GENERAL'
+];
+
+const EVENT_CATEGORIES = [
+  'ACADEMIC',
+  'CULTURAL',
+  'TECHNICAL',
+  'SPORTS',
+  'WORKSHOP',
+  'SEMINAR',
+  'OTHER'
+];
+
+const ANONYMOUS_CATEGORIES = [
+  'CAMPUS',
+  'ACADEMIC',
+  'PLACEMENT',
+  'GENERAL',
+  'HOSTEL',
+  'CANTEEN',
+  'LIBRARY'
+];
+
+const REPORT_REASONS = [
+  'SPAM',
+  'HARASSMENT',
+  'HATE_SPEECH',
+  'INAPPROPRIATE',
+  'FAKE_NEWS',
+  'OTHER'
+];
+
+module.exports = {
+  BRANCHES,
+  YEARS,
+  POST_CATEGORIES,
+  GROUP_CATEGORIES,
+  FORUM_CATEGORIES,
+  EVENT_CATEGORIES,
+  ANONYMOUS_CATEGORIES,
+  REPORT_REASONS
+};

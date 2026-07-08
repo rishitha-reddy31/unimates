@@ -1,0 +1,91 @@
+{
+  "name": "unimates-backend",
+  "version": "1.0.0",
+  "description": "College-centric social networking platform backend API",
+  "main": "src/server.js",
+  "author": "Unimates Team",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "db:sync": "node scripts/syncDatabase.js",
+    "db:seed": "node scripts/seed.js",
+    "db:seed-colleges": "node scripts/seedColleges.js",
+    "db:seed-telangana": "node scripts/seedTelanganaColleges.js"
+  },
+  "dependencies": {
+    "axios": "^1.3.4",
+    "bad-words": "^3.0.4",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^1.41.3",
+    "compression": "^1.8.1",
+    "connect-redis": "^7.0.1",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1",
+    "express-rate-limit": "^6.11.2",
+    "express-session": "^1.17.3",
+    "express-validator": "^6.15.0",
+    "helmet": "^7.2.0",
+    "jsonwebtoken": "^9.0.3",
+    "lodash": "^4.17.21",
+    "moment": "^2.29.4",
+    "morgan": "^1.10.1",
+    "multer": "^1.4.5-lts.1",
+    "multer-storage-cloudinary": "^4.0.0",
+    "nodemailer": "^6.10.1",
+    "pg": "^8.19.0",
+    "pg-hstore": "^2.3.4",
+    "redis": "^4.6.5",
+    "sanitize-html": "^2.10.0",
+    "sequelize": "^6.37.7",
+    "slugify": "^1.6.6",
+    "socket.io": "^4.8.3",
+    "uuid": "^9.0.0",
+    "validator": "^13.15.26",
+    "winston": "^3.8.2",
+    "winston-daily-rotate-file": "^4.7.1"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "eslint": "^8.38.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.27.5",
+    "husky": "^8.0.3",
+    "jest": "^29.5.0",
+    "jsdoc": "^4.0.2",
+    "lint-staged": "^13.2.1",
+    "nodemon": "^2.0.22",
+    "prettier": "^2.8.7",
+    "sequelize-cli": "^6.6.5",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "keywords": [
+    "social-network",
+    "college",
+    "campus",
+    "education",
+    "real-time",
+    "chat",
+    "api"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/unimates-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/unimates-backend/issues"
+  },
+  "homepage": "https://github.com/yourusername/unimates-backend#readme",
+  "lint-staged": {
+    "*.js": [
+      "eslint --fix",
+      "prettier --write"
+    ]
+  }
+}

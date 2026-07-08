@@ -1,0 +1,712 @@
+const jwt = require('jsonwebtoken');
+const College = require('../models/College');
+const MasterUser = require('../models/MasterUser');
+const User = require('../models/User');
+const Follow = require('../models/Follow');
+const FollowRequest = require('../models/FollowRequest');
+const { getCollegeModel } = require('../config/multiTenant');
+
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRE || '7d'
+  });
+};
+
+// @desc    Register user with college-specific database
+// @route   POST /api/auth/register
+// @access  Public
+const register = async (req, res) => {
+  try {
+    console.log('📝 Registration attempt:', req.body);
+
+    const { email, password, name, branch, year, collegeDomain, skills = [], interests = [], bio = '' } = req.body;
+
+    // Validate required fields
+    if (!email || !password || !name || !branch || !year || !collegeDomain) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide all required fields including college domain'
+      });
+    }
+
+    // Extract domain from email
+    const emailDomain = email.split('@')[1];
+    
+    // Verify that email domain matches selected college
+    if (emailDomain !== collegeDomain) {
+      return res.status(400).json({
+        success: false,
+        message: `Email domain ${emailDomain} does not match selected college ${collegeDomain}`
+      });
+    }
+
+    // Find college by domain in master database
+    const college = await College.findOne({ domain: collegeDomain });
+    if (!college) {
+      return res.status(400).json({
+        success: false,
+        message: 'College not registered in our system'
+      });
+    }
+
+    // Check if master user exists
+    let masterUser = await MasterUser.findOne({ email });
+    
+    if (!masterUser) {
+      // Create master user
+      masterUser = await MasterUser.create({
+        email,
+        password,
+        role: 'student',
+        collegeId: college._id,
+        profile: {
+          name,
+          profilePicture: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=2563eb&color=fff`
+        }
+      });
+    }
+
+    // Get college-specific database connection and User model
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+    const CollegeFollow = await getCollegeModel(collegeDomain, 'Follow', require('../models/Follow').schema);
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema);
+
+    // Check if user exists in college-specific database
+    const userExists = await CollegeUser.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({
+        success: false,
+        message: 'User already exists with this email in your college'
+      });
+    }
+
+    // Validate password length
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long'
+      });
+    }
+
+    // Create user in college-specific database
+    const user = await CollegeUser.create({
+      email,
+      password,
+      collegeId: college._id,
+      masterUserId: masterUser._id,
+      profile: {
+        name,
+        branch,
+        year,
+        bio,
+        skills,
+        interests,
+        profilePicture: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=2563eb&color=fff`
+      }
+    });
+
+    // Update college student count in master database
+    college.totalStudents += 1;
+    await college.save();
+
+    console.log(`✅ User created in ${collegeDomain} database:`, user._id);
+
+    // Generate token
+    const token = generateToken(user._id);
+
+    // Get personalized suggestions for this user
+    const suggestions = await getPersonalizedSuggestions(user._id, collegeDomain, CollegeUser, CollegeFollow);
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: {
+        _id: user._id,
+        email: user.email,
+        role: user.role,
+        collegeId: college._id,
+        collegeName: college.name,
+        collegeDomain: college.domain,
+        profile: user.profile,
+        followersCount: 0,
+        followingCount: 0,
+        pendingRequestsCount: 0
+      },
+      suggestions
+    });
+
+  } catch (error) {
+    console.error('❌ Registration error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Registration failed. Please try again.'
+    });
+  }
+};
+
+// @desc    Login user
+// @route   POST /api/auth/login
+// @access  Public
+const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email and password'
+      });
+    }
+
+    // Extract domain from email
+    const collegeDomain = email.split('@')[1];
+    
+    // Find college in master database
+    const college = await College.findOne({ domain: collegeDomain });
+    if (!college) {
+      return res.status(400).json({
+        success: false,
+        message: 'College not recognized'
+      });
+    }
+
+    // Get college-specific database connection
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+    const CollegeFollow = await getCollegeModel(collegeDomain, 'Follow', require('../models/Follow').schema);
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema);
+
+    // Find user in college-specific database
+    const user = await CollegeUser.findOne({ email }).select('+password');
+    
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Account has been deactivated. Please contact admin.'
+      });
+    }
+
+    const isPasswordMatch = await user.comparePassword(password);
+    if (!isPasswordMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    // Get counts
+    const followersCount = await CollegeFollow.countDocuments({ following: user._id });
+    const followingCount = await CollegeFollow.countDocuments({ follower: user._id });
+    const pendingRequestsCount = await CollegeFollowRequest.countDocuments({ 
+      recipient: user._id, 
+      status: 'pending' 
+    });
+
+    // Update last active
+    user.lastActive = Date.now();
+    await user.save();
+
+    const token = generateToken(user._id);
+
+    // Get personalized suggestions
+    const suggestions = await getPersonalizedSuggestions(user._id, collegeDomain, CollegeUser, CollegeFollow);
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        _id: user._id,
+        email: user.email,
+        role: user.role,
+        collegeId: college._id,
+        collegeName: college.name,
+        collegeDomain: college.domain,
+        profile: user.profile,
+        followersCount,
+        followingCount,
+        pendingRequestsCount
+      },
+      suggestions
+    });
+
+  } catch (error) {
+    console.error('❌ Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Login failed. Please try again.'
+    });
+  }
+};
+
+// @desc    Send follow request
+// @route   POST /api/auth/follow-request/:userId
+// @access  Private
+const sendFollowRequest = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user._id;
+    const collegeDomain = req.user.email.split('@')[1];
+
+    // Check if trying to follow self
+    if (userId === currentUserId.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot follow yourself'
+      });
+    }
+
+    // Get college-specific models
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+    const CollegeFollow = await getCollegeModel(collegeDomain, 'Follow', require('../models/Follow').schema);
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema);
+
+    // Check if user exists
+    const userToFollow = await CollegeUser.findById(userId);
+    if (!userToFollow) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if already following
+    const existingFollow = await CollegeFollow.findOne({
+      follower: currentUserId,
+      following: userId
+    });
+
+    if (existingFollow) {
+      return res.status(400).json({
+        success: false,
+        message: 'Already following this user'
+      });
+    }
+
+    // Check if follow request already exists
+    const existingRequest = await CollegeFollowRequest.findOne({
+      requester: currentUserId,
+      recipient: userId
+    });
+
+    if (existingRequest) {
+      if (existingRequest.status === 'pending') {
+        return res.status(400).json({
+          success: false,
+          message: 'Follow request already sent'
+        });
+      } else if (existingRequest.status === 'rejected') {
+        // Update rejected request to pending again
+        existingRequest.status = 'pending';
+        existingRequest.updatedAt = Date.now();
+        await existingRequest.save();
+        
+        return res.json({
+          success: true,
+          message: 'Follow request sent',
+          requestId: existingRequest._id,
+          status: 'pending'
+        });
+      }
+    }
+
+    // Create new follow request
+    const followRequest = await CollegeFollowRequest.create({
+      requester: currentUserId,
+      recipient: userId,
+      status: 'pending',
+      collegeId: req.user.collegeId
+    });
+
+    // Increment pending requests count for recipient
+    await CollegeUser.findByIdAndUpdate(userId, {
+      $inc: { pendingRequestsCount: 1 }
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Follow request sent',
+      requestId: followRequest._id,
+      status: 'pending'
+    });
+
+  } catch (error) {
+    console.error('❌ Send follow request error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to send follow request'
+    });
+  }
+};
+
+// @desc    Accept follow request
+// @route   POST /api/auth/accept-request/:requestId
+// @access  Private
+const acceptFollowRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const currentUserId = req.user._id;
+    const collegeDomain = req.user.email.split('@')[1];
+
+    // Get college-specific models
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+    const CollegeFollow = await getCollegeModel(collegeDomain, 'Follow', require('../models/Follow').schema);
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema);
+
+    // Find the follow request
+    const followRequest = await CollegeFollowRequest.findById(requestId);
+    
+    if (!followRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Follow request not found'
+      });
+    }
+
+    // Verify that current user is the recipient
+    if (followRequest.recipient.toString() !== currentUserId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to accept this request'
+      });
+    }
+
+    // Update request status
+    followRequest.status = 'accepted';
+    followRequest.updatedAt = Date.now();
+    await followRequest.save();
+
+    // Create follow relationship
+    await CollegeFollow.create({
+      follower: followRequest.requester,
+      following: followRequest.recipient,
+      collegeId: req.user.collegeId
+    });
+
+    // Update counts
+    await CollegeUser.findByIdAndUpdate(followRequest.requester, {
+      $inc: { followingCount: 1 }
+    });
+
+    await CollegeUser.findByIdAndUpdate(followRequest.recipient, {
+      $inc: { 
+        followersCount: 1,
+        pendingRequestsCount: -1 
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Follow request accepted',
+      followerId: followRequest.requester
+    });
+
+  } catch (error) {
+    console.error('❌ Accept follow request error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to accept follow request'
+    });
+  }
+};
+
+// @desc    Reject follow request
+// @route   POST /api/auth/reject-request/:requestId
+// @access  Private
+const rejectFollowRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const currentUserId = req.user._id;
+    const collegeDomain = req.user.email.split('@')[1];
+
+    // Get college-specific models
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema);
+
+    // Find the follow request
+    const followRequest = await CollegeFollowRequest.findById(requestId);
+    
+    if (!followRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Follow request not found'
+      });
+    }
+
+    // Verify that current user is the recipient
+    if (followRequest.recipient.toString() !== currentUserId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to reject this request'
+      });
+    }
+
+    // Update request status
+    followRequest.status = 'rejected';
+    followRequest.updatedAt = Date.now();
+    await followRequest.save();
+
+    // Decrement pending requests count
+    await CollegeUser.findByIdAndUpdate(currentUserId, {
+      $inc: { pendingRequestsCount: -1 }
+    });
+
+    res.json({
+      success: true,
+      message: 'Follow request rejected'
+    });
+
+  } catch (error) {
+    console.error('❌ Reject follow request error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to reject follow request'
+    });
+  }
+};
+
+// @desc    Get pending follow requests
+// @route   GET /api/auth/pending-requests
+// @access  Private
+const getPendingRequests = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const collegeDomain = req.user.email.split('@')[1];
+
+    // Get college-specific models
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema);
+
+    // Find pending requests where current user is the recipient
+    const pendingRequests = await CollegeFollowRequest.find({
+      recipient: currentUserId,
+      status: 'pending'
+    }).populate('requester', 'profile.name profile.profilePicture profile.branch profile.year profile.skills profile.interests');
+
+    res.json({
+      success: true,
+      count: pendingRequests.length,
+      requests: pendingRequests
+    });
+
+  } catch (error) {
+    console.error('❌ Get pending requests error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to get pending requests'
+    });
+  }
+};
+
+// @desc    Get personalized suggestions based on interests and skills
+// @route   GET /api/auth/suggestions
+// @access  Private
+const getSuggestions = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const collegeDomain = req.user.email.split('@')[1];
+
+    // Get college-specific models
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+    const CollegeFollow = await getCollegeModel(collegeDomain, 'Follow', require('../models/Follow').schema);
+
+    const suggestions = await getPersonalizedSuggestions(currentUserId, collegeDomain, CollegeUser, CollegeFollow);
+
+    res.json({
+      success: true,
+      count: suggestions.length,
+      suggestions
+    });
+
+  } catch (error) {
+    console.error('❌ Get suggestions error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to get suggestions'
+    });
+  }
+};
+
+// Helper function for personalized suggestions
+const getPersonalizedSuggestions = async (userId, collegeDomain, CollegeUser, CollegeFollow) => {
+  try {
+    // Get current user
+    const currentUser = await CollegeUser.findById(userId);
+    if (!currentUser) return [];
+
+    // Get users that current user is already following
+    const following = await CollegeFollow.find({ follower: userId }).distinct('following');
+    
+    // Get users that have sent pending requests to current user
+    const pendingRequests = await CollegeFollowRequest.find({ 
+      recipient: userId, 
+      status: 'pending' 
+    }).distinct('requester');
+
+    // Combine IDs to exclude
+    const excludeIds = [userId, ...following, ...pendingRequests];
+
+    // Calculate interest and skill matches
+    const userInterests = currentUser.profile?.interests || [];
+    const userSkills = currentUser.profile?.skills || [];
+    const userBranch = currentUser.profile?.branch;
+    const userYear = currentUser.profile?.year;
+
+    // Find users with matching interests, skills, branch, year
+    const suggestions = await CollegeUser.aggregate([
+      {
+        $match: {
+          _id: { $nin: excludeIds },
+          isActive: true,
+          collegeId: currentUser.collegeId
+        }
+      },
+      {
+        $addFields: {
+          // Calculate match score based on various factors
+          matchScore: {
+            $add: [
+              // Same branch: +30 points
+              { $cond: [{ $eq: ['$profile.branch', userBranch] }, 30, 0] },
+              
+              // Same year: +20 points
+              { $cond: [{ $eq: ['$profile.year', userYear] }, 20, 0] },
+              
+              // Interest matches: +10 points per match (max 30)
+              {
+                $min: [
+                  { $multiply: [
+                    { $size: { $setIntersection: ['$profile.interests', userInterests] } },
+                    10
+                  ]},
+                  30
+                ]
+              },
+              
+              // Skill matches: +5 points per match (max 20)
+              {
+                $min: [
+                  { $multiply: [
+                    { $size: { $setIntersection: ['$profile.skills', userSkills] } },
+                    5
+                  ]},
+                  20
+                ]
+              },
+              
+              // Has profile picture: +5 points
+              { $cond: [{ $ne: ['$profile.profilePicture', 'default-avatar.png'] }, 5, 0] },
+              
+              // Has bio: +5 points
+              { $cond: [{ $ne: ['$profile.bio', ''] }, 5, 0] },
+              
+              // Has projects: +10 points
+              { $cond: [{ $gt: [{ $size: { $ifNull: ['$profile.projects', []] } }, 0] }, 10, 0] }
+            ]
+          }
+        }
+      },
+      {
+        $sort: { matchScore: -1, followersCount: -1, createdAt: -1 }
+      },
+      {
+        $limit: 20
+      },
+      {
+        $project: {
+          _id: 1,
+          'profile.name': 1,
+          'profile.profilePicture': 1,
+          'profile.branch': 1,
+          'profile.year': 1,
+          'profile.bio': 1,
+          'profile.skills': 1,
+          'profile.interests': 1,
+          followersCount: 1,
+          followingCount: 1,
+          matchScore: 1
+        }
+      }
+    ]);
+
+    return suggestions;
+  } catch (error) {
+    console.error('❌ Personalized suggestions error:', error);
+    return [];
+  }
+};
+
+module.exports = {
+  register,
+  login,
+  getSuggestions,
+  sendFollowRequest,
+  acceptFollowRequest,
+  rejectFollowRequest,
+  getPendingRequests
+}; 
+// @desc    Get current user 
+// @route   GET /api/auth/me 
+// @access  Private 
+const getMe = async (req, res) => { 
+  try { 
+    res.json({ 
+      success: true, 
+      user: req.user 
+    }); 
+  } catch (error) { 
+    console.error('? GetMe error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get user data' 
+    }); 
+  } 
+}; 
+ 
+// @desc    Get pending follow requests 
+// @route   GET /api/auth/pending-requests 
+// @access  Private 
+const getPendingRequests = async (req, res) => { 
+  try { 
+    const currentUserId = req.user._id; 
+    const collegeDomain = req.user.email.split('@')[1]; 
+ 
+    // Get college-specific models 
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema); 
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema); 
+ 
+    // Find pending requests where current user is the recipient 
+    const pendingRequests = await CollegeFollowRequest.find({ 
+      recipient: currentUserId, 
+      status: 'pending' 
+    }).populate('requester', 'profile.name profile.profilePicture profile.branch profile.year profile.skills profile.interests'); 
+ 
+    res.json({ 
+      success: true, 
+      count: pendingRequests.length, 
+      requests: pendingRequests 
+    }); 
+ 
+  } catch (error) { 
+    console.error('? Get pending requests error:', error); 
+    res.status(500).json({ 
+      success: false, 
+    }); 
+  } 
+}; 
+ 
+module.exports = { 
+  register, 
+  login, 
+  getMe, 
+  getSuggestions, 
+  sendFollowRequest, 
+  acceptFollowRequest, 
+  rejectFollowRequest, 
+  getPendingRequests 
+}; 

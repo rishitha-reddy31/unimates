@@ -1,0 +1,3188 @@
+===== UNIMATES COMPLETE CODE DUMP ===== 
+Generated on: Wed 02/18/2026 20:49:26.69 
+ 
+========== BACKEND FILES ========== 
+ 
+----- package.json ----- 
+{
+  "name": "unimates-backend",
+  "version": "1.0.0",
+  "description": "College-centric social networking platform backend API",
+  "main": "src/server.js",
+  "author": "Unimates Team",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "prod": "NODE_ENV=production node src/server.js",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write \"src/**/*.js\"",
+    "db:seed": "node scripts/seed.js",
+    "db:backup": "node scripts/backup.js",
+    "docs": "jsdoc -c jsdoc.json",
+    "prepare": "husky install"
+  },
+  "dependencies": {
+    "axios": "^1.3.4",
+    "bad-words": "^3.0.4",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^1.41.3",
+    "compression": "^1.8.1",
+    "connect-redis": "^7.0.1",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1",
+    "express-rate-limit": "^6.11.2",
+    "express-session": "^1.17.3",
+    "express-validator": "^6.15.0",
+    "helmet": "^7.2.0",
+    "jsonwebtoken": "^9.0.3",
+    "lodash": "^4.17.21",
+    "moment": "^2.29.4",
+    "mongoose": "^7.8.9",
+    "morgan": "^1.10.1",
+    "multer": "^1.4.5-lts.1",
+    "multer-storage-cloudinary": "^4.0.0",
+    "nodemailer": "^6.10.1",
+    "redis": "^4.6.5",
+    "sanitize-html": "^2.10.0",
+    "slugify": "^1.6.6",
+    "socket.io": "^4.8.3",
+    "uuid": "^9.0.0",
+    "validator": "^13.15.26",
+    "winston": "^3.8.2",
+    "winston-daily-rotate-file": "^4.7.1"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "eslint": "^8.38.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.27.5",
+    "husky": "^8.0.3",
+    "jest": "^29.5.0",
+    "jsdoc": "^4.0.2",
+    "lint-staged": "^13.2.1",
+    "nodemon": "^2.0.22",
+    "prettier": "^2.8.7",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "keywords": [
+    "social-network",
+    "college",
+    "campus",
+    "education",
+    "real-time",
+    "chat",
+    "api"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/unimates-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/unimates-backend/issues"
+  },
+  "homepage": "https://github.com/yourusername/unimates-backend#readme",
+  "lint-staged": {
+    "*.js": [
+      "eslint --fix",
+      "prettier --write"
+    ]
+  }
+}
+ 
+----- .env ----- 
+NODE_ENV=development 
+PORT=5001
+MONGODB_URI=mongodb+srv://rishithareddy031_db_user:rishithareddy031%21secret@cluster0.lnoi4tk.mongodb.net/?appName=Cluster0
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production-32-chars 
+JWT_EXPIRE=7d 
+CLIENT_URL=http://localhost:3000 
+COLLEGE_DOMAIN=college.edu 
+----- server.js ----- 
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const compression = require('compression');
+const http = require('http');
+require('dotenv').config();
+
+// ============ DEFINE PORT IMMEDIATELY ============
+const PORT = process.env.PORT || 5001;
+console.log(`🚀 Starting server on port ${PORT}...`);
+
+// Import configurations
+const connectDB = require('./config/db');
+const { initializeSocket } = require('./config/socket');
+
+// Import routes
+const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
+const postRoutes = require('./routes/postRoutes');
+const chatRoutes = require('./routes/chatRoutes');
+const groupRoutes = require('./routes/groupRoutes');
+const forumRoutes = require('./routes/forumRoutes');
+const eventRoutes = require('./routes/eventRoutes');
+const anonymousRoutes = require('./routes/anonymousRoutes');
+const reportRoutes = require('./routes/reportRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const collegeRoutes = require('./routes/collegeRoutes');
+
+// Import middleware
+const errorHandler = require('./middleware/errorHandler');
+const { apiLimiter } = require('./middleware/rateLimiter');
+
+// Initialize express
+const app = express();
+const server = http.createServer(app);
+
+// Connect to MongoDB
+connectDB();
+
+// Initialize Socket.io
+initializeSocket(server);
+
+// Security middleware
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+}));
+
+// CORS configuration
+app.use(cors({
+  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  credentials: true,
+}));
+
+// Compression
+app.use(compression());
+
+// Body parser
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Logging
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan('dev'));
+}
+
+// Apply rate limiting to all routes
+app.use('/api/', apiLimiter);
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/posts', postRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/groups', groupRoutes);
+app.use('/api/forums', forumRoutes);
+app.use('/api/events', eventRoutes);
+app.use('/api/anonymous', anonymousRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/colleges', collegeRoutes);
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV,
+  });
+});
+
+// API documentation route
+app.get('/api', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Unimates API',
+    version: '1.0.0',
+    endpoints: {
+      auth: '/api/auth',
+      users: '/api/users',
+      posts: '/api/posts',
+      chat: '/api/chat',
+      groups: '/api/groups',
+      forums: '/api/forums',
+      events: '/api/events',
+      anonymous: '/api/anonymous',
+      reports: '/api/reports',
+      admin: '/api/admin',
+      notifications: '/api/notifications',
+      colleges: '/api/colleges',
+    }
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Route not found'
+  });
+});
+
+// Error handler
+app.use(errorHandler);
+
+// ============ START SERVER ============
+server.listen(PORT, () => {
+  console.log(`✅ Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+  console.log(`📡 API available at http://localhost:${PORT}/api`);
+  console.log(`🔌 Socket.io ready`);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err) => {
+  console.log('❌ UNHANDLED REJECTION! Shutting down...');
+  console.log(err.name, err.message);
+  server.close(() => {
+    process.exit(1);
+  });
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.log('❌ UNCAUGHT EXCEPTION! Shutting down...');
+  console.log(err.name, err.message);
+  process.exit(1);
+});
+
+module.exports = { app, server }; 
+----- authController.js ----- 
+const jwt = require('jsonwebtoken');
+const College = require('../models/College');
+const MasterUser = require('../models/MasterUser');
+const User = require('../models/User');
+const Follow = require('../models/Follow');
+const FollowRequest = require('../models/FollowRequest');
+const { getCollegeModel } = require('../config/multiTenant');
+
+const generateToken = (id, collegeDomain) => {
+  return jwt.sign(
+    { 
+      id, 
+      collegeDomain  // 🔴 CRITICAL: Include college domain in token
+    }, 
+    process.env.JWT_SECRET, 
+    {
+      expiresIn: process.env.JWT_EXPIRE || '7d'
+    }
+  );
+};
+
+// @desc    Register user with college-specific database
+// @route   POST /api/auth/register
+// @access  Public
+const register = async (req, res) => {
+  try {
+    console.log('📝 Registration attempt:', req.body);
+
+    const { email, password, name, branch, year, collegeDomain, skills = [], interests = [], bio = '' } = req.body;
+
+    // Validate required fields
+    if (!email || !password || !name || !branch || !year || !collegeDomain) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide all required fields including college domain'
+      });
+    }
+
+    // Extract domain from email
+    const emailDomain = email.split('@')[1];
+    
+    // Verify that email domain matches selected college
+    if (emailDomain !== collegeDomain) {
+      return res.status(400).json({
+        success: false,
+        message: `Email domain ${emailDomain} does not match selected college ${collegeDomain}`
+      });
+    }
+
+    // Find college by domain in master database
+    const college = await College.findOne({ domain: collegeDomain });
+    if (!college) {
+      return res.status(400).json({
+        success: false,
+        message: 'College not registered in our system'
+      });
+    }
+
+    // Check if master user exists
+    let masterUser = await MasterUser.findOne({ email });
+    
+    if (!masterUser) {
+      // Create master user
+      masterUser = await MasterUser.create({
+        email,
+        password,
+        role: 'student',
+        collegeId: college._id,
+        profile: {
+          name,
+          profilePicture: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=2563eb&color=fff`
+        }
+      });
+    }
+
+    // For now, use master database instead of college-specific
+    const CollegeUser = User;
+    const CollegeFollow = Follow;
+    const CollegeFollowRequest = FollowRequest;
+
+    // Check if user exists in college-specific database
+    const userExists = await CollegeUser.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({
+        success: false,
+        message: 'User already exists with this email in your college'
+      });
+    }
+
+    // Validate password length
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long'
+      });
+    }
+
+    // Create user in college-specific database
+    const user = await CollegeUser.create({
+      email,
+      password,
+      collegeId: college._id,
+      masterUserId: masterUser._id,
+      profile: {
+        name,
+        branch,
+        year,
+        bio,
+        skills,
+        interests,
+        profilePicture: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=2563eb&color=fff`
+      }
+    });
+
+    // Update college student count in master database
+    college.totalStudents += 1;
+    await college.save();
+
+    console.log(`✅ User created in ${collegeDomain} database:`, user._id);
+
+    // Generate token
+    const token = generateToken(user._id, collegeDomain);
+
+    // Get personalized suggestions for this user
+    const suggestions = await getPersonalizedSuggestions(user._id, collegeDomain, CollegeUser, CollegeFollow);
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: {
+        _id: user._id,
+        email: user.email,
+        role: user.role,
+        collegeId: college._id,
+        collegeName: college.name,
+        collegeDomain: college.domain,
+        profile: user.profile,
+        followersCount: 0,
+        followingCount: 0,
+        pendingRequestsCount: 0
+      },
+      suggestions
+    });
+
+  } catch (error) {
+    console.error('❌ Registration error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Registration failed. Please try again.'
+    });
+  }
+};
+
+// @desc    Login user - FIXED to properly check college-specific database
+// @route   POST /api/auth/login
+// @access  Public
+const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email and password'
+      });
+    }
+
+    // Extract domain from email
+    const collegeDomain = email.split('@')[1];
+    console.log(`🔐 Login attempt for domain: ${collegeDomain}`);
+    
+    // Find college in master database
+    const college = await College.findOne({ domain: collegeDomain });
+    if (!college) {
+      return res.status(400).json({
+        success: false,
+        message: 'College not recognized. Please check your email domain.'
+      });
+    }
+
+    try {
+      // For now, use master database instead of college-specific
+      const CollegeUser = User;
+      const CollegeFollow = Follow;
+      const CollegeFollowRequest = FollowRequest;
+
+      // Find user in master database
+      const user = await CollegeUser.findOne({ email }).select('+password');
+      
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid email or password'
+        });
+      }
+
+      if (!user.isActive) {
+        return res.status(401).json({
+          success: false,
+          message: 'Account has been deactivated. Please contact admin.'
+        });
+      }
+
+      const isPasswordMatch = await user.comparePassword(password);
+      if (!isPasswordMatch) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid email or password'
+        });
+      }
+
+      // Get counts
+      const followersCount = await CollegeFollow.countDocuments({ following: user._id });
+      const followingCount = await CollegeFollow.countDocuments({ follower: user._id });
+      const pendingRequestsCount = await CollegeFollowRequest.countDocuments({ 
+        recipient: user._id, 
+        status: 'pending' 
+      });
+
+      // Update last active
+      user.lastActive = Date.now();
+      await user.save();
+
+       const token = generateToken(user._id, collegeDomain);
+
+      // Get personalized suggestions
+      const suggestions = await getPersonalizedSuggestions(user._id, collegeDomain, CollegeUser, CollegeFollow);
+
+      console.log(`✅ User logged in: ${user.email} from ${college.name}`);
+
+      res.json({
+        success: true,
+        token,
+        user: {
+          _id: user._id,
+          email: user.email,
+          role: user.role,
+          collegeId: college._id,
+          collegeName: college.name,
+          collegeDomain: college.domain,
+          profile: user.profile,
+          followersCount,
+          followingCount,
+          pendingRequestsCount
+        },
+        suggestions
+      });
+    } catch (dbError) {
+      console.error(`❌ Database error for domain ${collegeDomain}:`, dbError.message);
+      return res.status(500).json({
+        success: false,
+        message: 'Error accessing college database. Please try again.'
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Login failed. Please try again.'
+    });
+  }
+};
+
+// @desc    Get current user
+// @route   GET /api/auth/me
+// @access  Private
+const getMe = async (req, res) => {
+  try {
+    // req.user already contains the college-specific user from the middleware
+    res.json({
+      success: true,
+      user: req.user
+    });
+  } catch (error) {
+    console.error('❌ GetMe error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get user data'
+    });
+  }
+};
+
+// @desc    Send follow request
+// @route   POST /api/auth/follow-request/:userId
+// @access  Private
+const sendFollowRequest = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user._id;
+    const collegeDomain = req.user.email.split('@')[1];
+
+    // Check if trying to follow self
+    if (userId === currentUserId.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot follow yourself'
+      });
+    }
+
+    // Get college-specific models
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+    const CollegeFollow = await getCollegeModel(collegeDomain, 'Follow', require('../models/Follow').schema);
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema);
+
+    // Check if user exists
+    const userToFollow = await CollegeUser.findById(userId);
+    if (!userToFollow) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if already following
+    const existingFollow = await CollegeFollow.findOne({
+      follower: currentUserId,
+      following: userId
+    });
+
+    if (existingFollow) {
+      return res.status(400).json({
+        success: false,
+        message: 'Already following this user'
+      });
+    }
+
+    // Check if follow request already exists
+    const existingRequest = await CollegeFollowRequest.findOne({
+      requester: currentUserId,
+      recipient: userId
+    });
+
+    if (existingRequest) {
+      if (existingRequest.status === 'pending') {
+        return res.status(400).json({
+          success: false,
+          message: 'Follow request already sent'
+        });
+      } else if (existingRequest.status === 'rejected') {
+        existingRequest.status = 'pending';
+        existingRequest.updatedAt = Date.now();
+        await existingRequest.save();
+        
+        return res.json({
+          success: true,
+          message: 'Follow request sent',
+          requestId: existingRequest._id,
+          status: 'pending'
+        });
+      }
+    }
+
+    // Create new follow request
+    const followRequest = await CollegeFollowRequest.create({
+      requester: currentUserId,
+      recipient: userId,
+      status: 'pending',
+      collegeId: req.user.collegeId
+    });
+
+    // Increment pending requests count for recipient
+    await CollegeUser.findByIdAndUpdate(userId, {
+      $inc: { pendingRequestsCount: 1 }
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Follow request sent',
+      requestId: followRequest._id,
+      status: 'pending'
+    });
+
+  } catch (error) {
+    console.error('❌ Send follow request error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to send follow request'
+    });
+  }
+};
+
+// @desc    Accept follow request
+// @route   POST /api/auth/accept-request/:requestId
+// @access  Private
+const acceptFollowRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const currentUserId = req.user._id;
+    const collegeDomain = req.user.email.split('@')[1];
+
+    // Get college-specific models
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+    const CollegeFollow = await getCollegeModel(collegeDomain, 'Follow', require('../models/Follow').schema);
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema);
+
+    // Find the follow request
+    const followRequest = await CollegeFollowRequest.findById(requestId);
+    
+    if (!followRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Follow request not found'
+      });
+    }
+
+    // Verify that current user is the recipient
+    if (followRequest.recipient.toString() !== currentUserId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to accept this request'
+      });
+    }
+
+    // Update request status
+    followRequest.status = 'accepted';
+    followRequest.updatedAt = Date.now();
+    await followRequest.save();
+
+    // Create follow relationship
+    await CollegeFollow.create({
+      follower: followRequest.requester,
+      following: followRequest.recipient,
+      collegeId: req.user.collegeId
+    });
+
+    // Update counts
+    await CollegeUser.findByIdAndUpdate(followRequest.requester, {
+      $inc: { followingCount: 1 }
+    });
+
+    await CollegeUser.findByIdAndUpdate(followRequest.recipient, {
+      $inc: { 
+        followersCount: 1,
+        pendingRequestsCount: -1 
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Follow request accepted',
+      followerId: followRequest.requester
+    });
+
+  } catch (error) {
+    console.error('❌ Accept follow request error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to accept follow request'
+    });
+  }
+};
+
+// @desc    Reject follow request
+// @route   POST /api/auth/reject-request/:requestId
+// @access  Private
+const rejectFollowRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const currentUserId = req.user._id;
+    const collegeDomain = req.user.email.split('@')[1];
+
+    // Get college-specific models
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema);
+
+    // Find the follow request
+    const followRequest = await CollegeFollowRequest.findById(requestId);
+    
+    if (!followRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Follow request not found'
+      });
+    }
+
+    // Verify that current user is the recipient
+    if (followRequest.recipient.toString() !== currentUserId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to reject this request'
+      });
+    }
+
+    // Update request status
+    followRequest.status = 'rejected';
+    followRequest.updatedAt = Date.now();
+    await followRequest.save();
+
+    // Decrement pending requests count
+    await CollegeUser.findByIdAndUpdate(currentUserId, {
+      $inc: { pendingRequestsCount: -1 }
+    });
+
+    res.json({
+      success: true,
+      message: 'Follow request rejected'
+    });
+
+  } catch (error) {
+    console.error('❌ Reject follow request error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to reject follow request'
+    });
+  }
+};
+
+// @desc    Get pending follow requests
+// @route   GET /api/auth/pending-requests
+// @access  Private
+const getPendingRequests = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const collegeDomain = req.user.email.split('@')[1];
+
+    // Get college-specific models
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema);
+
+    // Find pending requests where current user is the recipient
+    const pendingRequests = await CollegeFollowRequest.find({
+      recipient: currentUserId,
+      status: 'pending'
+    }).populate('requester', 'profile.name profile.profilePicture profile.branch profile.year profile.skills profile.interests');
+
+    res.json({
+      success: true,
+      count: pendingRequests.length,
+      requests: pendingRequests
+    });
+
+  } catch (error) {
+    console.error('❌ Get pending requests error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to get pending requests'
+    });
+  }
+};
+
+// @desc    Get personalized suggestions based on interests and skills
+// @route   GET /api/auth/suggestions
+// @access  Private
+const getSuggestions = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const collegeDomain = req.user.email.split('@')[1];
+
+    // Get college-specific models
+    const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+    const CollegeFollow = await getCollegeModel(collegeDomain, 'Follow', require('../models/Follow').schema);
+
+    const suggestions = await getPersonalizedSuggestions(currentUserId, collegeDomain, CollegeUser, CollegeFollow);
+
+    res.json({
+      success: true,
+      count: suggestions.length,
+      suggestions
+    });
+
+  } catch (error) {
+    console.error('❌ Get suggestions error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to get suggestions'
+    });
+  }
+};
+
+// Helper function for personalized suggestions
+const getPersonalizedSuggestions = async (userId, collegeDomain, CollegeUser, CollegeFollow) => {
+  try {
+    // Get current user
+    const currentUser = await CollegeUser.findById(userId);
+    if (!currentUser) return [];
+
+    // Get users that current user is already following
+    const following = await CollegeFollow.find({ follower: userId }).distinct('following');
+    
+    // Get users that have sent pending requests to current user
+    const CollegeFollowRequest = await getCollegeModel(collegeDomain, 'FollowRequest', require('../models/FollowRequest').schema);
+    const pendingRequests = await CollegeFollowRequest.find({ 
+      recipient: userId, 
+      status: 'pending' 
+    }).distinct('requester');
+
+    // Combine IDs to exclude
+    const excludeIds = [userId, ...following, ...pendingRequests];
+
+    // Calculate interest and skill matches
+    const userInterests = currentUser.profile?.interests || [];
+    const userSkills = currentUser.profile?.skills || [];
+    const userBranch = currentUser.profile?.branch;
+    const userYear = currentUser.profile?.year;
+
+    // Find users with matching interests, skills, branch, year
+    const suggestions = await CollegeUser.aggregate([
+      {
+        $match: {
+          _id: { $nin: excludeIds },
+          isActive: true,
+          collegeId: currentUser.collegeId
+        }
+      },
+      {
+        $addFields: {
+          matchScore: {
+            $add: [
+              { $cond: [{ $eq: ['$profile.branch', userBranch] }, 30, 0] },
+              { $cond: [{ $eq: ['$profile.year', userYear] }, 20, 0] },
+              {
+                $min: [
+                  { $multiply: [
+                    { $size: { $setIntersection: ['$profile.interests', userInterests] } },
+                    10
+                  ]},
+                  30
+                ]
+              },
+              {
+                $min: [
+                  { $multiply: [
+                    { $size: { $setIntersection: ['$profile.skills', userSkills] } },
+                    5
+                  ]},
+                  20
+                ]
+              },
+              { $cond: [{ $ne: ['$profile.profilePicture', 'default-avatar.png'] }, 5, 0] },
+              { $cond: [{ $ne: ['$profile.bio', ''] }, 5, 0] },
+              { $cond: [{ $gt: [{ $size: { $ifNull: ['$profile.projects', []] } }, 0] }, 10, 0] }
+            ]
+          }
+        }
+      },
+      {
+        $sort: { matchScore: -1, followersCount: -1, createdAt: -1 }
+      },
+      {
+        $limit: 20
+      },
+      {
+        $project: {
+          _id: 1,
+          'profile.name': 1,
+          'profile.profilePicture': 1,
+          'profile.branch': 1,
+          'profile.year': 1,
+          'profile.bio': 1,
+          'profile.skills': 1,
+          'profile.interests': 1,
+          followersCount: 1,
+          followingCount: 1,
+          matchScore: 1
+        }
+      }
+    ]);
+
+    return suggestions;
+  } catch (error) {
+    console.error('❌ Personalized suggestions error:', error);
+    return [];
+  }
+};
+
+module.exports = {
+  register,
+  login,
+  getMe,
+  getSuggestions,
+  sendFollowRequest,
+  acceptFollowRequest,
+  rejectFollowRequest,
+  getPendingRequests
+}; 
+----- userController.js ----- 
+const User = require('../models/User'); 
+const Follow = require('../models/Follow'); 
+const College = require('../models/College'); 
+const { getRecommendations } = require('../utils/recommendationEngine'); 
+ 
+// @desc    Get user profile 
+// @route   GET /api/users/:id 
+// @access  Private 
+const getUserProfile = async (req, res) => { 
+  try { 
+    const userId = req.params.id; 
+ 
+    // Find user by ID 
+    const user = await User.findById(userId) 
+      .select('-password -__v') 
+      .lean(); 
+ 
+    if (!user) { 
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      }); 
+    } 
+ 
+    // Get college info 
+    const college = await College.findById(user.collegeId).select('name domain'); 
+ 
+    // Get followers and following counts 
+    const followersCount = await Follow.countDocuments({ 
+      following: userId, 
+      followingModel: 'User', 
+      collegeId: user.collegeId 
+    }); 
+ 
+    const followingCount = await Follow.countDocuments({ 
+      follower: userId, 
+      followerModel: 'User', 
+      collegeId: user.collegeId 
+    }); 
+ 
+    // Get followers list 
+    const followers = await Follow.find({ 
+      following: userId, 
+      followingModel: 'User' 
+    }).populate('follower', 'profile.name profile.profilePicture'); 
+ 
+    // Get following list 
+    const following = await Follow.find({ 
+      follower: userId, 
+      followerModel: 'User' 
+    }).populate('following', 'profile.name profile.profilePicture'); 
+ 
+    // Format response 
+    const userResponse = { 
+      ...user, 
+      college: college ? { name: college.name, domain: college.domain } : null, 
+      followersCount, 
+      followingCount, 
+      followers: followers.map(f => f.follower), 
+      following: following.map(f => f.following) 
+    }; 
+ 
+    res.json({ 
+      success: true, 
+      user: userResponse 
+    }); 
+ 
+  } catch (error) { 
+    console.error('? Get user profile error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get user profile' 
+    }); 
+  } 
+}; 
+ 
+// @desc    Update user profile 
+// @route   PUT /api/users/update 
+// @access  Private 
+const updateProfile = async (req, res) => { 
+  try { 
+    const updates = { 
+      'profile.name': req.body.name, 
+      'profile.branch': req.body.branch, 
+      'profile.year': req.body.year, 
+      'profile.bio': req.body.bio, 
+      'profile.skills': req.body.skills, 
+      'profile.hobbies': req.body.hobbies 
+    }; 
+ 
+    // Remove undefined fields 
+    Object.keys(updates).forEach(key => 
+      updates[key] === undefined && delete updates[key] 
+    ); 
+ 
+    // Handle projects 
+    if (req.body.projects) { 
+      updates['profile.projects'] = req.body.projects; 
+    } 
+ 
+    // Handle achievements 
+    if (req.body.achievements) { 
+      updates['profile.achievements'] = req.body.achievements; 
+    } 
+ 
+    const user = await User.findByIdAndUpdate( 
+      req.user._id, 
+      { $set: updates }, 
+      { new: true, runValidators: true } 
+    ).select('-password'); 
+ 
+    res.json({ 
+      success: true, 
+      user 
+    }); 
+  } catch (error) { 
+    console.error('? Update profile error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update profile' 
+    }); 
+  } 
+}; 
+ 
+// @desc    Update profile picture 
+// @route   PUT /api/users/profile-picture 
+// @access  Private 
+const updateProfilePicture = async (req, res) => { 
+  try { 
+    if (!req.file) { 
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please upload an image' 
+      }); 
+    } 
+ 
+    const user = await User.findByIdAndUpdate( 
+      req.user._id, 
+      { 'profile.profilePicture': req.file.path }, 
+      { new: true } 
+    ); 
+ 
+    res.json({ 
+      success: true, 
+      profilePicture: user.profile.profilePicture 
+    }); 
+  } catch (error) { 
+    console.error('? Update profile picture error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update profile picture' 
+    }); 
+  } 
+}; 
+ 
+// @desc    Follow user 
+// @route   POST /api/users/:id/follow 
+// @access  Private 
+const followUser = async (req, res) => { 
+  try { 
+    const userToFollow = await User.findById(req.params.id); 
+ 
+    if (!userToFollow) { 
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      }); 
+    } 
+ 
+    if (userToFollow._id.equals(req.user._id)) { 
+      return res.status(400).json({ 
+        success: false, 
+        message: 'You cannot follow yourself' 
+      }); 
+    } 
+ 
+    // Check if already following 
+    const existingFollow = await Follow.findOne({ 
+      follower: req.user._id, 
+      followerModel: 'User', 
+      following: userToFollow._id, 
+      followingModel: 'User', 
+      collegeId: req.user.collegeId 
+    }); 
+ 
+    if (existingFollow) { 
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Already following this user' 
+      }); 
+    } 
+ 
+    // Create follow relationship 
+    await Follow.create({ 
+      follower: req.user._id, 
+      followerModel: 'User', 
+      following: userToFollow._id, 
+      followingModel: 'User', 
+      collegeId: req.user.collegeId 
+    }); 
+ 
+    // Update counts 
+    await User.findByIdAndUpdate(req.user._id, { 
+      $inc: { followingCount: 1 } 
+    }); 
+ 
+    await User.findByIdAndUpdate(userToFollow._id, { 
+      $inc: { followersCount: 1 } 
+    }); 
+ 
+    res.json({ 
+      success: true, 
+      message: 'User followed successfully', 
+      isFollowing: true 
+    }); 
+ 
+  } catch (error) { 
+    console.error('? Follow user error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to follow user' 
+    }); 
+  } 
+}; 
+ 
+// @desc    Unfollow user 
+// @route   POST /api/users/:id/unfollow 
+// @access  Private 
+const unfollowUser = async (req, res) => { 
+  try { 
+    const userToUnfollow = await User.findById(req.params.id); 
+ 
+    if (!userToUnfollow) { 
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      }); 
+    } 
+ 
+    // Delete follow relationship 
+    await Follow.deleteOne({ 
+      follower: req.user._id, 
+      followerModel: 'User', 
+      following: userToUnfollow._id, 
+      followingModel: 'User', 
+      collegeId: req.user.collegeId 
+    }); 
+ 
+    // Update counts 
+    await User.findByIdAndUpdate(req.user._id, { 
+      $inc: { followingCount: -1 } 
+    }); 
+ 
+    await User.findByIdAndUpdate(userToUnfollow._id, { 
+      $inc: { followersCount: -1 } 
+    }); 
+ 
+    res.json({ 
+      success: true, 
+      message: 'User unfollowed successfully', 
+      isFollowing: false 
+    }); 
+ 
+  } catch (error) { 
+    console.error('? Unfollow user error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to unfollow user' 
+    }); 
+  } 
+}; 
+ 
+// @desc    Block user 
+// @route   POST /api/users/:id/block 
+// @access  Private 
+const blockUser = async (req, res) => { 
+  try { 
+    const userToBlock = await User.findById(req.params.id); 
+ 
+    if (!userToBlock) { 
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      }); 
+    } 
+ 
+    if (userToBlock.role === 'admin') { 
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Cannot block admin' 
+      }); 
+    } 
+ 
+    // Add to blocked users 
+    await User.findByIdAndUpdate(req.user._id, { 
+      $addToSet: { blockedUsers: userToBlock._id } 
+    }); 
+ 
+    // Remove from following/followers if any 
+    await Follow.deleteMany({ 
+      $or: [ 
+        { follower: req.user._id, following: userToBlock._id }, 
+        { follower: userToBlock._id, following: req.user._id } 
+      ] 
+    }); 
+ 
+    res.json({ 
+      success: true, 
+      message: 'User blocked successfully' 
+    }); 
+ 
+  } catch (error) { 
+    console.error('? Block user error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to block user' 
+    }); 
+  } 
+}; 
+ 
+// @desc    Unblock user 
+// @route   POST /api/users/:id/unblock 
+// @access  Private 
+const unblockUser = async (req, res) => { 
+  try { 
+    await User.findByIdAndUpdate(req.user._id, { 
+      $pull: { blockedUsers: req.params.id } 
+    }); 
+ 
+    res.json({ 
+      success: true, 
+      message: 'User unblocked successfully' 
+    }); 
+ 
+  } catch (error) { 
+    console.error('? Unblock user error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to unblock user' 
+    }); 
+  } 
+}; 
+ 
+// @desc    Search users 
+// @route   GET /api/users/search 
+// @access  Private 
+const searchUsers = async (req, res) => { 
+  try { 
+    const { query, branch, year } = req.query; 
+    let searchQuery = { collegeId: req.user.collegeId, isActive: true }; 
+ 
+    if (query) { 
+      searchQuery.$or = [ 
+        { 'profile.name': { $regex: query, $options: 'i' } }, 
+        { email: { $regex: query, $options: 'i' } }, 
+        { 'profile.skills': { $regex: query, $options: 'i' } } 
+      ]; 
+    } 
+ 
+    if (branch) { 
+      searchQuery['profile.branch'] = branch; 
+    } 
+ 
+    if (year) { 
+      searchQuery['profile.year'] = year; 
+    } 
+ 
+    const users = await User.find(searchQuery) 
+      .select('profile.name profile.profilePicture profile.branch profile.year email') 
+      .limit(20) 
+      .lean(); 
+ 
+    res.json({ 
+      success: true, 
+      users 
+    }); 
+ 
+  } catch (error) { 
+    console.error('? Search users error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to search users' 
+    }); 
+  } 
+}; 
+ 
+// @desc    Get recommended users 
+// @route   GET /api/users/recommendations 
+// @access  Private 
+const getRecommendedUsers = async (req, res) => { 
+  try { 
+    const recommendations = await getRecommendations(req.user._id); 
+    res.json({ 
+      success: true, 
+      users: recommendations 
+    }); 
+  } catch (error) { 
+    console.error('? Get recommendations error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get recommendations' 
+    }); 
+  } 
+}; 
+ 
+// @desc    Add project 
+// @route   POST /api/users/projects 
+// @access  Private 
+const addProject = async (req, res) => { 
+  try { 
+    const { title, description, link } = req.body; 
+ 
+    const user = await User.findByIdAndUpdate( 
+      req.user._id, 
+      { 
+        $push: { 
+          'profile.projects': { 
+            title, 
+            description, 
+            link, 
+            createdAt: Date.now() 
+          } 
+        } 
+      }, 
+      { new: true } 
+    ); 
+ 
+    res.json({ 
+      success: true, 
+      projects: user.profile.projects 
+    }); 
+  } catch (error) { 
+    console.error('? Add project error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to add project' 
+    }); 
+  } 
+}; 
+ 
+// @desc    Delete project 
+// @route   DELETE /api/users/projects/:projectId 
+// @access  Private 
+const deleteProject = async (req, res) => { 
+  try { 
+    const user = await User.findByIdAndUpdate( 
+      req.user._id, 
+      { 
+        $pull: { 
+          'profile.projects': { _id: req.params.projectId } 
+        } 
+      }, 
+      { new: true } 
+    ); 
+ 
+    res.json({ 
+      success: true, 
+      projects: user.profile.projects 
+    }); 
+  } catch (error) { 
+    console.error('? Delete project error:', error); 
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to delete project' 
+    }); 
+  } 
+}; 
+ 
+module.exports = { 
+  getUserProfile, 
+  updateProfile, 
+  updateProfilePicture, 
+  addProject, 
+  deleteProject, 
+  followUser, 
+  unfollowUser, 
+  blockUser, 
+  unblockUser, 
+  searchUsers, 
+  getRecommendedUsers 
+}; 
+ 
+----- postController.js ----- 
+const Post = require('../models/Post');
+const Comment = require('../models/Comment');
+const User = require('../models/User');
+const { getCollegeModel } = require('../config/multiTenant');
+
+// @desc    Create post
+// @route   POST /api/posts/create
+// @access  Private
+const createPost = async (req, res) => {
+  try {
+    const { content } = req.body;
+    const collegeDomain = req.user.email.split('@')[1];
+    const CollegePost = await getCollegeModel(collegeDomain, 'Post', require('../models/Post').schema);
+    
+    const post = await CollegePost.create({
+      content,
+      createdBy: req.user._id
+    });
+
+    res.status(201).json({
+      success: true,
+      post
+    });
+  } catch (error) {
+    console.error('❌ Create post error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create post'
+    });
+  }
+};
+
+// @desc    Get feed
+// @route   GET /api/posts/feed
+// @access  Private
+const getFeed = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const collegeDomain = req.user.email.split('@')[1];
+    const CollegePost = await getCollegeModel(collegeDomain, 'Post', require('../models/Post').schema);
+
+    const posts = await CollegePost.find({ isDeleted: false })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('createdBy', 'profile.name profile.profilePicture');
+
+    const total = await CollegePost.countDocuments({ isDeleted: false });
+
+    res.json({
+      success: true,
+      posts,
+      pagination: {  // ✅ Make sure this exists!
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    console.error('❌ Get feed error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get feed'
+    });
+  }
+};
+
+// @desc    Like/Unlike post
+// @route   POST /api/posts/:id/like
+// @access  Private
+const toggleLike = async (req, res) => {
+  try {
+    const collegeDomain = req.user.email.split('@')[1];
+    const CollegePost = await getCollegeModel(collegeDomain, 'Post', require('../models/Post').schema);
+    
+    const post = await CollegePost.findById(req.params.id);
+    
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+
+    const isLiked = post.likes.includes(req.user._id);
+    
+    if (isLiked) {
+      await CollegePost.findByIdAndUpdate(post._id, {
+        $pull: { likes: req.user._id },
+        $inc: { likesCount: -1 }
+      });
+    } else {
+      await CollegePost.findByIdAndUpdate(post._id, {
+        $push: { likes: req.user._id },
+        $inc: { likesCount: 1 }
+      });
+    }
+
+    const updatedPost = await CollegePost.findById(post._id);
+
+    res.json({
+      success: true,
+      isLiked: !isLiked,
+      likesCount: updatedPost.likesCount
+    });
+  } catch (error) {
+    console.error('❌ Toggle like error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to toggle like'
+    });
+  }
+};
+
+// @desc    Add comment
+// @route   POST /api/posts/:id/comment
+// @access  Private
+const addComment = async (req, res) => {
+  try {
+    const { content } = req.body;
+    const collegeDomain = req.user.email.split('@')[1];
+    
+    const CollegePost = await getCollegeModel(collegeDomain, 'Post', require('../models/Post').schema);
+    const CollegeComment = await getCollegeModel(collegeDomain, 'Comment', require('../models/Comment').schema);
+    
+    const post = await CollegePost.findById(req.params.id);
+    
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+
+    const comment = await CollegeComment.create({
+      content,
+      postId: post._id,
+      createdBy: req.user._id
+    });
+
+    await CollegePost.findByIdAndUpdate(post._id, {
+      $push: { comments: comment._id },
+      $inc: { commentsCount: 1 }
+    });
+
+    res.status(201).json({
+      success: true,
+      comment
+    });
+  } catch (error) {
+    console.error('❌ Add comment error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to add comment'
+    });
+  }
+};
+
+// @desc    Delete post
+// @route   DELETE /api/posts/:id
+// @access  Private
+const deletePost = async (req, res) => {
+  try {
+    const collegeDomain = req.user.email.split('@')[1];
+    const CollegePost = await getCollegeModel(collegeDomain, 'Post', require('../models/Post').schema);
+    
+    const post = await CollegePost.findById(req.params.id);
+    
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+
+    if (!post.createdBy.equals(req.user._id) && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to delete this post'
+      });
+    }
+
+    post.isDeleted = true;
+    await post.save();
+
+    res.json({
+      success: true,
+      message: 'Post deleted successfully'
+    });
+  } catch (error) {
+    console.error('❌ Delete post error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete post'
+    });
+  }
+};
+
+// @desc    Get comments
+// @route   GET /api/posts/:id/comments
+// @access  Private
+const getComments = async (req, res) => {
+  try {
+    const collegeDomain = req.user.email.split('@')[1];
+    const CollegeComment = await getCollegeModel(collegeDomain, 'Comment', require('../models/Comment').schema);
+    
+    const comments = await CollegeComment.find({
+      postId: req.params.id,
+      isDeleted: false
+    })
+      .sort({ createdAt: -1 })
+      .populate('createdBy', 'profile.name profile.profilePicture');
+
+    res.json({
+      success: true,
+      comments
+    });
+  } catch (error) {
+    console.error('❌ Get comments error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get comments'
+    });
+  }
+};
+
+// ============ FIXED EXPORTS - ALL FUNCTIONS INCLUDED ============
+module.exports = {
+  createPost,
+  getFeed,
+  toggleLike,      // ✅ This is properly exported now
+  addComment,
+  deletePost,
+  getComments
+}; 
+----- User.js ----- 
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+
+const userSchema = new mongoose.Schema({
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
+  password: {
+    type: String,
+    required: true,
+    minlength: 6
+  },
+  role: {
+    type: String,
+    enum: ['student', 'admin'],
+    default: 'student'
+  },
+  collegeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'College',
+    required: true
+  },
+  masterUserId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MasterUser',
+    required: true
+  },
+  profile: {
+    profilePicture: {
+      type: String,
+      default: 'default-avatar.png'
+    },
+    name: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    branch: {
+      type: String,
+      enum: ['CSE', 'ECE', 'ME', 'CE', 'EE', 'IT', 'OTHER'],
+      required: true
+    },
+    year: {
+      type: String,
+      enum: ['1st', '2nd', '3rd', '4th', '5th'],
+      required: true
+    },
+    bio: {
+      type: String,
+      maxlength: 500,
+      default: ''
+    },
+    skills: [{
+      type: String,
+      trim: true
+    }],
+    interests: [{
+      type: String,
+      trim: true
+    }],
+    projects: [{
+      title: { type: String, required: true },
+      description: { type: String, required: true },
+      link: { type: String },
+      createdAt: { type: Date, default: Date.now }
+    }],
+    hobbies: [{
+      type: String,
+      trim: true
+    }],
+    achievements: [{
+      title: { type: String, required: true },
+      description: { type: String },
+      date: { type: Date }
+    }]
+  },
+  followersCount: {
+    type: Number,
+    default: 0
+  },
+  followingCount: {
+    type: Number,
+    default: 0
+  },
+  pendingRequestsCount: {
+    type: Number,
+    default: 0
+  },
+  isEmailVerified: {
+    type: Boolean,
+    default: false
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  lastActive: {
+    type: Date,
+    default: Date.now
+  },
+  postsCount: {
+    type: Number,
+    default: 0
+  }
+}, {
+  timestamps: true
+});
+
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+
+// Compare password method
+userSchema.methods.comparePassword = async function(candidatePassword) {
+  return await bcrypt.compare(candidatePassword, this.password);
+};
+
+// Get public profile
+userSchema.methods.getPublicProfile = function() {
+  const userObject = this.toObject();
+  delete userObject.password;
+  delete userObject.__v;
+  return userObject;
+};
+
+// Indexes
+userSchema.index({ email: 1 }, { unique: true });
+userSchema.index({ collegeId: 1 });
+userSchema.index({ 'profile.branch': 1, 'profile.year': 1 });
+userSchema.index({ 'profile.skills': 1 });
+userSchema.index({ 'profile.interests': 1 });
+userSchema.index({ followersCount: -1 });
+
+module.exports = mongoose.model('User', userSchema); 
+----- Post.js ----- 
+const mongoose = require('mongoose');
+
+const postSchema = new mongoose.Schema({
+  content: {
+    type: String,
+    required: true,
+    maxlength: 2000
+  },
+  image: {
+    type: String,
+    default: null
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  likes: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  likesCount: {
+    type: Number,
+    default: 0
+  },
+  comments: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Comment'
+  }],
+  commentsCount: {
+    type: Number,
+    default: 0
+  },
+  isEdited: {
+    type: Boolean,
+    default: false
+  },
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
+  reportCount: {
+    type: Number,
+    default: 0
+  },
+  privacy: {
+    type: String,
+    enum: ['public', 'private', 'friends'],
+    default: 'public'
+  }
+}, {
+  timestamps: true
+});
+
+// Index for faster feed queries
+postSchema.index({ createdAt: -1 });
+postSchema.index({ createdBy: 1, createdAt: -1 });
+postSchema.index({ isDeleted: 1 });
+
+module.exports = mongoose.model('Post', postSchema); 
+----- College.js ----- 
+const mongoose = require('mongoose'); 
+ 
+const collegeSchema = new mongoose.Schema({ 
+  name: { 
+    type: String, 
+    required: [true, 'College name is required'], 
+    trim: true 
+  }, 
+  domain: { 
+    type: String, 
+    required: [true, 'College domain is required'], 
+    unique: true, 
+    lowercase: true, 
+    trim: true, 
+    validate: { 
+      validator: function(v) { 
+        return /[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?(\.[a-zA-Z]{2,})+$/.test(v); 
+      }, 
+      message: 'Please enter a valid domain (e.g., college.edu, university.ac.in)' 
+    } 
+  }, 
+  address: { 
+    street: String, 
+    city: String, 
+    state: String, 
+    country: { 
+      type: String, 
+      default: 'India' 
+    }, 
+    zipCode: String 
+  }, 
+  contactEmail: { 
+    type: String, 
+    lowercase: true, 
+    validate: { 
+      validator: function(v) { 
+        return /\S+@\S+\.\S+$/.test(v); 
+      }, 
+      message: 'Please enter a valid email' 
+    } 
+  }, 
+  contactPhone: String, 
+  website: String, 
+  establishedYear: { 
+    type: Number, 
+    min: 1800, 
+    max: new Date().getFullYear() 
+  }, 
+  totalStudents: { 
+    type: Number, 
+    default: 0, 
+    min: 0 
+  }, 
+  isActive: { 
+    type: Boolean, 
+    default: true 
+  }, 
+  createdAt: { 
+    type: Date, 
+    default: Date.now 
+  } 
+}, { 
+  timestamps: true 
+}); 
+ 
+// Text index for search functionality 
+collegeSchema.index({ name: 'text', 'address.city': 'text', 'address.state': 'text' }); 
+ 
+// Compound index for common queries 
+collegeSchema.index({ isActive: 1, totalStudents: -1 }); 
+ 
+module.exports = mongoose.model('College', collegeSchema); 
+ 
+----- auth.js ----- 
+const jwt = require('jsonwebtoken');
+const { getCollegeModel } = require('../config/multiTenant');
+
+// @desc    Protect routes - verify JWT token
+// @access  Private
+const protect = async (req, res, next) => {
+  try {
+    let token;
+
+    // Check if token exists in headers
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    // No token found
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized to access this route. No token provided.'
+      });
+    }
+
+    try {
+      // Verify token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      // 🔴 FIX: Get college domain from token (now included!)
+      const collegeDomain = decoded.collegeDomain;
+      
+      if (!collegeDomain) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid token: missing college domain'
+        });
+      }
+      
+      // Get college-specific database connection
+      const CollegeUser = await getCollegeModel(collegeDomain, 'User', require('../models/User').schema);
+      
+      // Find user in college-specific database
+      const user = await CollegeUser.findById(decoded.id).select('-password');
+
+      // Check if user exists in college database
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'User not found in college database'
+        });
+      }
+
+      // Check if user is active
+      if (!user.isActive) {
+        return res.status(401).json({
+          success: false,
+          message: 'Account has been deactivated. Please contact admin.'
+        });
+      }
+
+      // Attach user and college info to request object
+      req.user = user;
+      req.collegeDomain = collegeDomain;
+      
+      console.log(`✅ User authenticated: ${user.email} from ${collegeDomain}`);
+      next();
+      
+    } catch (error) {
+      console.error('Token verification error:', error);
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized to access this route. Invalid or expired token.'
+      });
+    }
+    
+  } catch (error) {
+    console.error('Auth middleware error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error in authentication'
+    });
+  }
+};
+
+module.exports = { protect }; 
+----- multiTenant.js ----- 
+const mongoose = require('mongoose'); 
+ 
+// Cache for college database connections 
+const collegeConnections = {}; 
+ 
+/** 
+ * Get or create college-specific database connection 
+ * @param {string} collegeDomain - College domain (e.g., 'mrct.edu') 
+ */ 
+const getCollegeConnection = async (collegeDomain) => { 
+  try { 
+    // Sanitize domain for database name 
+    const dbName = `unimates_${collegeDomain.replace(/\./g, '_')}`; 
+ 
+    // Check if connection already exists in cache 
+    if (collegeConnections[dbName]) { 
+      console.log(`?? Using cached connection for ${dbName}`); 
+      return collegeConnections[dbName]; 
+    } 
+ 
+    // Get base MongoDB URI from environment 
+    const baseUri = process.env.MONGODB_URI; 
+ 
+    // Parse the base URI to replace database name 
+    const uriParts = baseUri.split('/'); 
+    const lastPart = uriParts[uriParts.length - 1]; 
+    const queryIndex = lastPart.indexOf('?'); 
+ 
+    let newUri; 
+    if (queryIndex !== -1) { 
+      const baseWithoutDb = baseUri.substring(0, baseUri.lastIndexOf('/') + 1); 
+      const queryString = lastPart.substring(queryIndex); 
+      newUri = `${baseWithoutDb}${dbName}${queryString}`; 
+    } else { 
+      newUri = `${baseUri.substring(0, baseUri.lastIndexOf('/') + 1)}${dbName}`; 
+    } 
+ 
+    console.log(`?? Creating new database connection: ${dbName}`); 
+ 
+    // Create new connection 
+    const connection = mongoose.createConnection(newUri, { 
+      useNewUrlParser: true, 
+      useUnifiedTopology: true, 
+    }); 
+ 
+    // Wait for connection to open 
+    await new Promise((resolve, reject) => { 
+      connection.once('open', resolve); 
+      connection.once('error', reject); 
+    }); 
+ 
+    // Cache the connection 
+    collegeConnections[dbName] = connection; 
+ 
+    console.log(`? Connected to database: ${dbName}`); 
+    return connection; 
+  } catch (error) { 
+    console.error(`? Failed to create college database:`, error.message); 
+    throw error; 
+  } 
+}; 
+ 
+/** 
+ * Get college-specific model 
+ * @param {string} collegeDomain - College domain 
+ * @param {string} modelName - Model name 
+ * @param {mongoose.Schema} schema - Mongoose schema 
+ */ 
+const getCollegeModel = async (collegeDomain, modelName, schema) => { 
+  try { 
+    const connection = await getCollegeConnection(collegeDomain); 
+    return connection.model(modelName, schema); 
+  } catch (error) { 
+    console.error(`? Failed to get model ${modelName}:`, error.message); 
+    throw error; 
+  } 
+}; 
+ 
+module.exports = { 
+  getCollegeConnection, 
+  getCollegeModel 
+}; 
+ 
+========== FRONTEND FILES ========== 
+ 
+----- package.json ----- 
+{"name":"unimates-frontend","version":"1.0.0","private":true,"dependencies":{"@headlessui/react":"^2.2.9","@heroicons/react":"^2.2.0","@sentry/react":"^10.38.0","@sentry/tracing":"^7.120.4","axios":"^1.3.5","chart.js":"^4.5.1","date-fns":"^4.1.0","emoji-picker-react":"^4.18.0","formik":"^2.4.9","react":"^18.2.0","react-chartjs-2":"^5.3.1","react-dom":"^18.2.0","react-helmet-async":"^2.0.5","react-hot-toast":"^2.6.0","react-intersection-observer":"^10.0.2","react-query":"^3.39.3","react-router-dom":"^6.10.0","react-scripts":"5.0.1","socket.io-client":"^4.6.1","web-vitals":"^5.1.0","yup":"^1.7.1"},"scripts":{"start":"react-scripts start","build":"react-scripts build","test":"react-scripts test","eject":"react-scripts eject"},"eslintConfig":{"extends":["react-app"]},"browserslist":{"production":[">0.2%%","not dead","not op_mini all"],"development":["last 1 chrome version","last 1 firefox version","last 1 safari version"]}} 
+----- .env ----- 
+REACT_APP_API_URL=http://localhost:5002/api
+REACT_APP_SOCKET_URL=http://localhost:5002 
+----- App.jsx ----- 
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
+import { QueryClient, QueryClientProvider } from 'react-query';
+import { HelmetProvider } from 'react-helmet-async';
+
+// Context Providers
+import { AuthProvider } from './context/AuthContext';
+import { SocketProvider } from './context/SocketContext';
+import { ThemeProvider } from './context/ThemeContext';
+
+// Components
+import PrivateRoute from './components/common/PrivateRoute';
+import AdminRoute from './components/common/AdminRoute';
+import Layout from './components/common/Layout';
+
+// Auth Pages
+import Login from './components/auth/Login';
+import Register from './components/auth/Register';
+
+// Main Pages
+import Feed from './components/feed/Feed';
+import Profile from './components/profile/Profile';
+import EditProfile from './components/profile/EditProfile';
+import Chat from './components/chat/Chat';
+import Groups from './components/groups/Groups';
+import GroupDetail from './components/groups/GroupDetail';
+import CreateGroup from './components/groups/CreateGroup';
+import Forums from './components/forums/Forums';
+import ForumThread from './components/forums/ForumThread';
+import CreateThread from './components/forums/CreateThread';
+import Events from './components/events/Events';
+import CreateEvent from './components/events/CreateEvent';
+import AnonymousSpace from './components/anonymous/AnonymousSpace';
+import AnonymousPostDetail from './components/anonymous/AnonymousPostDetail';
+import Suggestions from './components/suggestions/Suggestions';
+
+// Admin Pages
+import AdminDashboard from './components/admin/AdminDashboard';
+import UserManagement from './components/admin/UserManagement';
+import ContentModeration from './components/admin/ContentModeration';
+import Reports from './components/admin/Reports';
+import Analytics from './components/admin/Analytics';
+
+// Other Pages
+import Notifications from './components/notifications/Notifications';
+import Settings from './components/settings/Settings';
+import Search from './components/search/Search';
+import PageNotFound from './components/common/PageNotFound';
+
+// Styles
+import './App.css';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+      staleTime: 5 * 60 * 1000,
+    },
+  },
+});
+
+function App() {
+  console.log('🚀 App rendering');
+  
+  return (
+    <HelmetProvider>
+      <QueryClientProvider client={queryClient}>
+        <Router>
+          <ThemeProvider>
+            <AuthProvider>  {/* ✅ THIS IS CRITICAL */}
+              <SocketProvider>
+                <Toaster
+                  position="top-right"
+                  toastOptions={{
+                    duration: 4000,
+                    style: {
+                      background: '#363636',
+                      color: '#fff',
+                    },
+                  }}
+                />
+                <Routes>
+                  {/* Public Routes */}
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
+
+                  {/* Protected Routes */}
+                  <Route element={<PrivateRoute />}>
+                    <Route element={<Layout />}>
+                      <Route path="/" element={<Navigate to="/feed" replace />} />
+                      <Route path="/feed" element={<Feed />} />
+                      <Route path="/profile/:id?" element={<Profile />} />
+                      <Route path="/profile/edit" element={<EditProfile />} />
+                      <Route path="/chat" element={<Chat />} />
+                      <Route path="/chat/:userId" element={<Chat />} />
+                      <Route path="/groups" element={<Groups />} />
+                      <Route path="/groups/create" element={<CreateGroup />} />
+                      <Route path="/groups/:id" element={<GroupDetail />} />
+                      <Route path="/forums" element={<Forums />} />
+                      <Route path="/forums/create" element={<CreateThread />} />
+                      <Route path="/forums/:id" element={<ForumThread />} />
+                      <Route path="/events" element={<Events />} />
+                      <Route path="/events/create" element={<CreateEvent />} />
+                      <Route path="/anonymous" element={<AnonymousSpace />} />
+                      <Route path="/anonymous/:id" element={<AnonymousPostDetail />} />
+                      <Route path="/suggestions" element={<Suggestions />} />
+                      <Route path="/notifications" element={<Notifications />} />
+                      <Route path="/search" element={<Search />} />
+                      <Route path="/settings" element={<Settings />} />
+                    </Route>
+                  </Route>
+
+                  {/* Admin Routes */}
+                  <Route element={<AdminRoute />}>
+                    <Route element={<Layout />}>
+                      <Route path="/admin" element={<AdminDashboard />} />
+                      <Route path="/admin/users" element={<UserManagement />} />
+                      <Route path="/admin/content" element={<ContentModeration />} />
+                      <Route path="/admin/reports" element={<Reports />} />
+                      <Route path="/admin/analytics" element={<Analytics />} />
+                    </Route>
+                  </Route>
+
+                  {/* 404 Route */}
+                  <Route path="*" element={<PageNotFound />} />
+                </Routes>
+              </SocketProvider>
+            </AuthProvider>  {/* ✅ CLOSING TAG */}
+          </ThemeProvider>
+        </Router>
+      </QueryClientProvider>
+    </HelmetProvider>
+  );
+}
+
+export default App; 
+----- AuthContext.jsx ----- 
+import React, { createContext, useState, useEffect, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+import toast from 'react-hot-toast';
+
+export const AuthContext = createContext();
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  // Initialize axios defaults and check token on mount
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    console.log('🔍 AuthProvider initializing, token:', token ? 'Present' : 'Missing');
+    
+    if (token) {
+      // Set the token in axios defaults
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      console.log('✅ Token set in axios defaults');
+      
+      // Fetch user data
+      fetchUser(token);
+    } else {
+      console.log('⚠️ No token found, setting loading to false');
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchUser = async (token) => {
+    try {
+      console.log('🔄 Fetching user data with token...');
+      const res = await axios.get(`${process.env.REACT_APP_API_URL}/auth/me`);
+      console.log('✅ User data received:', res.data.user.email);
+      setUser(res.data.user);
+    } catch (error) {
+      console.error('❌ Failed to fetch user:', error.response?.data || error.message);
+      localStorage.removeItem('token');
+      delete axios.defaults.headers.common['Authorization'];
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const login = async (email, password) => {
+  try {
+    const res = await axios.post(`${process.env.REACT_APP_API_URL}/auth/login`, {
+      email,
+      password
+    });
+
+    const { token, user } = res.data;
+    
+    // 🔴 CRITICAL: Save to localStorage immediately
+    localStorage.setItem('token', token);
+    console.log('✅ Token saved to localStorage:', token.substring(0, 20) + '...');
+    
+    // Set in axios defaults for all future requests
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    
+    setUser(user);
+    toast.success('Logged in successfully!');
+    navigate('/');
+    
+    return { success: true };
+  } catch (error) {
+    toast.error(error.response?.data?.message || 'Login failed');
+    return { success: false };
+  }
+};
+  const register = async (userData) => {
+  try {
+    console.log('📝 Registration data being sent:', JSON.stringify(userData, null, 2));
+    
+    const res = await axios.post(`${process.env.REACT_APP_API_URL}/auth/register`, userData);
+    
+    console.log('✅ Registration response:', res.data);
+    // ... rest of your code
+  } catch (error) {
+    console.error('❌ Registration error details:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message
+    });
+    toast.error(error.response?.data?.message || 'Registration failed');
+    return { success: false };
+  }
+};
+
+  const logout = async () => {
+    try {
+      if (localStorage.getItem('token')) {
+        await axios.post(`${process.env.REACT_APP_API_URL}/auth/logout`);
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      // Clear everything
+      localStorage.removeItem('token');
+      delete axios.defaults.headers.common['Authorization'];
+      setUser(null);
+      toast.success('Logged out successfully');
+      navigate('/login');
+    }
+  };
+
+  const value = {
+    user,
+    loading,
+    login,
+    register,
+    logout,
+    isAuthenticated: !!user,
+    isAdmin: user?.role === 'admin'
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+}; 
+----- api.js ----- 
+import axios from 'axios';
+import toast from 'react-hot-toast';
+
+const api = axios.create({
+  baseURL: 'http://localhost:5001/api',
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+
+// Request interceptor - this runs BEFORE every request
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    console.log(` [${config.method.toUpperCase()}] ${config.url} - Token:`, token ? ' Present' : ' Missing');
+    console.log(`📤 [${config.method.toUpperCase()}] ${config.url} - Token:`, token ? '✅ Present' : '❌ Missing');
+    
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+      console.log('   ✅ Authorization header set');
+    } else {
+      console.log('   ⚠️ No token available');
+    }
+    return config;
+  },
+  (error) => {
+    console.error('❌ Request interceptor error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Response interceptor - this runs AFTER every response
+api.interceptors.response.use(
+  (response) => {
+    console.log(`📥 [${response.config.method.toUpperCase()}] ${response.config.url} - ${response.status}`);
+    return response;
+  },
+  (error) => {
+    console.error(`❌ Response error: ${error.config?.url} - ${error.response?.status}`);
+    
+    if (error.response?.status === 401) {
+      console.log('🚨 401 Unauthorized - Token invalid or expired');
+      
+      // Clear invalid token
+      localStorage.removeItem('token');
+      delete axios.defaults.headers.common['Authorization'];
+      
+      // Redirect to login if not already there
+      if (!window.location.pathname.includes('/login')) {
+        toast.error('Session expired. Please login again.');
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+export default api; 
+----- auth.js ----- 
+import api from './api';
+
+export const authService = {
+  // Authentication
+  login: (email, password) => api.post('/auth/login', { email, password }),
+  register: (userData) => api.post('/auth/register', userData),
+  getMe: () => api.get('/auth/me'),
+  logout: () => api.post('/auth/logout'),
+  
+  // Suggestions
+  getSuggestions: () => api.get('/auth/suggestions'),
+  
+  // Follow Requests
+  sendFollowRequest: (userId) => api.post(`/auth/follow-request/${userId}`),
+  acceptFollowRequest: (requestId) => api.post(`/auth/accept-request/${requestId}`),
+  rejectFollowRequest: (requestId) => api.post(`/auth/reject-request/${requestId}`),
+  getPendingRequests: () => api.get('/auth/pending-requests'),
+  
+  // Legacy follow methods (kept for backward compatibility)
+  followUser: (userId) => api.post(`/auth/follow/${userId}`),
+  unfollowUser: (userId) => api.post(`/auth/unfollow/${userId}`)
+}; 
+----- Login.jsx ----- 
+import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
+import { Helmet } from 'react-helmet-async';
+
+const Login = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { login } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    
+    const result = await login(email, password);
+    
+    if (result.success) {
+      navigate('/');
+    }
+    
+    setLoading(false);
+  };
+
+  return (
+    <>
+      <Helmet>
+        <title>Login - Unimates</title>
+      </Helmet>
+      
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-md w-full space-y-8">
+          <div>
+            <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
+              Sign in to Unimates
+            </h2>
+            <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
+              Or{' '}
+              <Link to="/register" className="font-medium text-blue-600 hover:text-blue-500">
+                create your account
+              </Link>
+            </p>
+          </div>
+          
+          <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+            <div className="rounded-md shadow-sm -space-y-px">
+              <div>
+                <label htmlFor="email-address" className="sr-only">
+                  College Email
+                </label>
+                <input
+                  id="email-address"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                  placeholder="College email (@college.edu or @college.ac.in)"
+                />
+              </div>
+              <div>
+                <label htmlFor="password" className="sr-only">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                  placeholder="Password"
+                />
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Signing in...' : 'Sign in'}
+              </button>
+            </div>
+          </form>
+          
+          <div className="mt-6">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400">
+                  Only @college.edu or @college.ac.in emails allowed
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default Login; 
+----- Register.jsx ----- 
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
+import { Helmet } from 'react-helmet-async';
+import { collegeService } from '../../services/college';
+import { XMarkIcon, PlusIcon } from '@heroicons/react/24/outline';
+import toast from 'react-hot-toast';
+
+const Register = () => {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    branch: '',
+    year: '',
+    collegeDomain: '',
+    bio: ''
+  });
+  const [selectedInterests, setSelectedInterests] = useState([]);
+  const [selectedSkills, setSelectedSkills] = useState([]);
+  const [customInterest, setCustomInterest] = useState('');
+  const [customSkill, setCustomSkill] = useState('');
+  const [colleges, setColleges] = useState([]);
+  const [loadingColleges, setLoadingColleges] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [showInterests, setShowInterests] = useState(false);
+  const { register } = useAuth();
+  const navigate = useNavigate();
+
+  // Predefined options
+  const branches = ['CSE', 'ECE', 'ME', 'CE', 'EE', 'IT', 'OTHER'];
+  const years = ['1st', '2nd', '3rd', '4th', '5th'];
+  
+  const predefinedInterests = [
+    'Web Development', 'Mobile Development', 'AI/ML', 'Data Science',
+    'Cloud Computing', 'Cybersecurity', 'Blockchain', 'IoT',
+    'Competitive Programming', 'Open Source', 'UI/UX Design', 'DevOps',
+    'Robotics', 'AR/VR', 'Game Development', 'Database Systems',
+    'Networking', 'Software Testing', 'Project Management', 'Research',
+    'Machine Learning', 'Deep Learning', 'Computer Vision', 'NLP',
+    'Frontend Development', 'Backend Development', 'Full Stack', 'DevOps',
+    'Cloud Architecture', 'System Design', 'Algorithms', 'Data Structures'
+  ];
+
+  const predefinedSkills = [
+    'JavaScript', 'Python', 'Java', 'C++', 'React', 'Node.js', 
+    'MongoDB', 'SQL', 'AWS', 'Docker', 'Kubernetes', 'TensorFlow',
+    'PyTorch', 'Flutter', 'Swift', 'Kotlin', 'Go', 'Rust',
+    'GraphQL', 'REST APIs', 'Microservices', 'Spring Boot',
+    'Django', 'Flask', 'Express.js', 'Next.js', 'Vue.js', 'Angular'
+  ];
+  
+  useEffect(() => {
+    fetchColleges();
+  }, []);
+
+  const fetchColleges = async () => {
+    try {
+      setLoadingColleges(true);
+      const res = await collegeService.getColleges();
+      // Sort colleges alphabetically by name
+      const sortedColleges = (res.data.colleges || []).sort((a, b) => 
+        a.name.localeCompare(b.name)
+      );
+      setColleges(sortedColleges);
+    } catch (error) {
+      console.error('Failed to fetch colleges:', error);
+      toast.error('Failed to load colleges');
+    } finally {
+      setLoadingColleges(false);
+    }
+  };
+
+  const handleChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+  };
+
+  const handleAddInterest = (interest) => {
+    if (!selectedInterests.includes(interest) && selectedInterests.length < 10) {
+      setSelectedInterests([...selectedInterests, interest]);
+    }
+  };
+
+  const handleAddCustomInterest = () => {
+    if (customInterest.trim() && !selectedInterests.includes(customInterest.trim()) && selectedInterests.length < 10) {
+      setSelectedInterests([...selectedInterests, customInterest.trim()]);
+      setCustomInterest('');
+    }
+  };
+
+  const handleRemoveInterest = (interest) => {
+    setSelectedInterests(selectedInterests.filter(i => i !== interest));
+  };
+
+  const handleAddSkill = (skill) => {
+    if (!selectedSkills.includes(skill) && selectedSkills.length < 15) {
+      setSelectedSkills([...selectedSkills, skill]);
+    }
+  };
+
+  const handleAddCustomSkill = () => {
+    if (customSkill.trim() && !selectedSkills.includes(customSkill.trim()) && selectedSkills.length < 15) {
+      setSelectedSkills([...selectedSkills, customSkill.trim()]);
+      setCustomSkill('');
+    }
+  };
+
+  const handleRemoveSkill = (skill) => {
+    setSelectedSkills(selectedSkills.filter(s => s !== skill));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    // Validation
+    if (formData.password !== formData.confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+
+    if (!formData.collegeDomain) {
+      toast.error('Please select your college');
+      return;
+    }
+
+    // Extract domain from email
+    const emailDomain = formData.email.split('@')[1];
+    if (emailDomain !== formData.collegeDomain) {
+      toast.error(`Email domain must match selected college (${formData.collegeDomain})`);
+      return;
+    }
+
+    if (selectedInterests.length === 0) {
+      toast.error('Please select at least one interest');
+      return;
+    }
+
+    setLoading(true);
+
+    // Prepare registration data
+    const { confirmPassword, ...userData } = formData;
+    const registrationData = {
+      ...userData,
+      interests: selectedInterests,
+      skills: selectedSkills
+    };
+
+    const result = await register(registrationData);
+
+    if (result.success) {
+      toast.success('Registration successful!');
+      navigate('/suggestions');
+    }
+
+    setLoading(false);
+  };
+
+  // Group colleges by type for better organization
+  const groupedColleges = colleges.reduce((acc, college) => {
+    const type = college.type || 'Other Institutions';
+    if (!acc[type]) acc[type] = [];
+    acc[type].push(college);
+    return acc;
+  }, {});
+
+  // Order of college types for display
+  const typeOrder = [
+    'Central University',
+    'State University',
+    'Institute of National Importance',
+    'Deemed University',
+    'Government Autonomous',
+    'Government',
+    'Private Autonomous',
+    'Private',
+    'Private - Women',
+    'Government Medical',
+    'Private Medical',
+    'Medical University',
+    'Other Institutions'
+  ];
+
+  if (loadingColleges) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading Telangana colleges...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Helmet>
+        <title>Register - Unimates | Hyderabad & Telangana Colleges</title>
+      </Helmet>
+
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-2xl mx-auto">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white">
+              Join Your Telangana College Community
+            </h2>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              Or <Link to="/login" className="font-medium text-blue-600 hover:text-blue-500">
+                sign in to existing account
+              </Link>
+            </p>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 md:p-8">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* College Selection */}
+              <div>
+                <label htmlFor="collegeDomain" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Select Your College <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="collegeDomain"
+                  name="collegeDomain"
+                  required
+                  value={formData.collegeDomain}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="">🏛️ Choose your college</option>
+                  {typeOrder.map(type => 
+                    groupedColleges[type] && (
+                      <optgroup key={type} label={`📌 ${type}`}>
+                        {groupedColleges[type].map(college => (
+                          <option key={college._id} value={college.domain}>
+                            {college.name} {college.establishedYear ? `(${college.establishedYear})` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )
+                  )}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Your email domain must match the selected college
+                </p>
+              </div>
+
+              {/* Full Name */}
+              <div>
+                <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Full Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="name"
+                  name="name"
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  placeholder="John Doe"
+                />
+              </div>
+
+              {/* Email */}
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  College Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={formData.email}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  placeholder={formData.collegeDomain ? `yourname@${formData.collegeDomain}` : "yourname@college.edu or yourname@college.ac.in"}
+                  disabled={!formData.collegeDomain}
+                />
+              </div>
+
+              {/* Branch & Year */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="branch" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Branch <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    id="branch"
+                    name="branch"
+                    required
+                    value={formData.branch}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">Select Branch</option>
+                    {branches.map(branch => (
+                      <option key={branch} value={branch}>{branch}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="year" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Year <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    id="year"
+                    name="year"
+                    required
+                    value={formData.year}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">Select Year</option>
+                    {years.map(year => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Bio */}
+              <div>
+                <label htmlFor="bio" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Bio (Optional)
+                </label>
+                <textarea
+                  id="bio"
+                  name="bio"
+                  rows="3"
+                  value={formData.bio}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white resize-none"
+                  placeholder="Tell us a bit about yourself..."
+                  maxLength="300"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  {formData.bio.length}/300 characters
+                </p>
+              </div>
+
+              {/* Interests Section */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Your Interests <span className="text-red-500">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowInterests(!showInterests)}
+                    className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                  >
+                    {showInterests ? 'Hide' : 'Show'} interests
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mb-3">
+                  Select up to 10 interests to help us find like-minded peers
+                </p>
+
+                {/* Selected Interests */}
+                {selectedInterests.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {selectedInterests.map((interest) => (
+                      <span
+                        key={interest}
+                        className="inline-flex items-center px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm dark:bg-purple-900 dark:text-purple-200"
+                      >
+                        {interest}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveInterest(interest)}
+                          className="ml-2 text-purple-600 hover:text-purple-800 dark:text-purple-400"
+                        >
+                          <XMarkIcon className="h-4 w-4" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Interest Selection */}
+                {showInterests && (
+                  <div className="space-y-3">
+                    {/* Predefined Interests */}
+                    <div>
+                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+                        Popular Interests:
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {predefinedInterests.slice(0, 12).map((interest) => (
+                          <button
+                            key={interest}
+                            type="button"
+                            onClick={() => handleAddInterest(interest)}
+                            disabled={selectedInterests.includes(interest) || selectedInterests.length >= 10}
+                            className={`px-3 py-1 rounded-full text-sm ${
+                              selectedInterests.includes(interest)
+                                ? 'bg-gray-200 text-gray-500 cursor-not-allowed dark:bg-gray-700'
+                                : selectedInterests.length >= 10
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800'
+                                : 'bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:hover:bg-blue-800'
+                            }`}
+                          >
+                            {interest}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Custom Interest Input */}
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={customInterest}
+                        onChange={(e) => setCustomInterest(e.target.value)}
+                        placeholder="Add custom interest..."
+                        className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                        maxLength="30"
+                        disabled={selectedInterests.length >= 10}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddCustomInterest}
+                        disabled={!customInterest.trim() || selectedInterests.length >= 10}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <PlusIcon className="h-5 w-5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Skills Section */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Your Skills (Optional)
+                </label>
+                <p className="text-xs text-gray-500 mb-3">
+                  Select up to 15 skills to showcase your expertise
+                </p>
+
+                {/* Selected Skills */}
+                {selectedSkills.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {selectedSkills.map((skill) => (
+                      <span
+                        key={skill}
+                        className="inline-flex items-center px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm dark:bg-green-900 dark:text-green-200"
+                      >
+                        {skill}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSkill(skill)}
+                          className="ml-2 text-green-600 hover:text-green-800 dark:text-green-400"
+                        >
+                          <XMarkIcon className="h-4 w-4" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Predefined Skills */}
+                <div className="mb-3">
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+                    Popular Skills:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {predefinedSkills.slice(0, 15).map((skill) => (
+                      <button
+                        key={skill}
+                        type="button"
+                        onClick={() => handleAddSkill(skill)}
+                        disabled={selectedSkills.includes(skill) || selectedSkills.length >= 15}
+                        className={`px-3 py-1 rounded-full text-sm ${
+                          selectedSkills.includes(skill)
+                            ? 'bg-gray-200 text-gray-500 cursor-not-allowed dark:bg-gray-700'
+                            : selectedSkills.length >= 15
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800'
+                            : 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-200 dark:hover:bg-green-800'
+                        }`}
+                      >
+                        {skill}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom Skill Input */}
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={customSkill}
+                    onChange={(e) => setCustomSkill(e.target.value)}
+                    placeholder="Add custom skill..."
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    maxLength="30"
+                    disabled={selectedSkills.length >= 15}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCustomSkill}
+                    disabled={!customSkill.trim() || selectedSkills.length >= 15}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <PlusIcon className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Password Fields */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Password <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    required
+                    value={formData.password}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    placeholder="••••••••"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Confirm Password <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="confirmPassword"
+                    name="confirmPassword"
+                    type="password"
+                    required
+                    value={formData.confirmPassword}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? 'Creating your account...' : 'Create Account'}
+                </button>
+              </div>
+            </form>
+
+            {/* College Info Footer */}
+            <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                <span>🎓 {colleges.length} Colleges</span>
+                <span>📍 Hyderabad • Warangal • Nizamabad</span>
+                <span>✨ {predefinedInterests.length} Interests</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default Register; 
+----- PrivateRoute.jsx ----- 
+import React from 'react';
+import { Navigate, Outlet } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
+import LoadingSpinner from './LoadingSpinner';
+
+const PrivateRoute = () => {
+    const { user, loading, isAuthenticated } = useAuth();
+
+    if (loading) {
+        return (
+            <div className="flex justify-center items-center h-screen">
+                <LoadingSpinner size="lg" />
+            </div>
+        );
+    }
+
+    return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
+};
+
+export default PrivateRoute; 
+===== END OF CODE DUMP ===== 
